@@ -6,12 +6,11 @@ namespace SqlKata
 {
     public abstract class AbstractQuery
     {
-        protected AbstractQuery Parent;
+        public AbstractQuery Parent;
     }
 
     public abstract partial class BaseQuery<Q> : AbstractQuery where Q : BaseQuery<Q>
     {
-        protected virtual string[] bindingOrder { get; }
         public List<AbstractClause> Clauses { get; set; } = new List<AbstractClause>();
 
         private bool orFlag = false;
@@ -22,18 +21,7 @@ namespace SqlKata
         {
             this.EngineScope = engine;
 
-            // this.Clauses = this.Clauses.Select(x =>
-            // {
-            //     x.Engine = engine;
-            //     return x;
-            // }).ToList();
-
             return (Q)this;
-        }
-
-        public virtual List<AbstractClause> OrderedClauses(string engine)
-        {
-            return bindingOrder.SelectMany(x => GetComponents(x, engine)).ToList();
         }
 
         public BaseQuery()
@@ -57,7 +45,7 @@ namespace SqlKata
         {
             if (this == parent)
             {
-                throw new ArgumentException("Cannot set the same query as a parent of itself");
+                throw new ArgumentException($"Cannot set the same {nameof(AbstractQuery)} as a parent of itself");
             }
 
             this.Parent = parent;
@@ -93,6 +81,28 @@ namespace SqlKata
 
             return (Q)this;
         }
+
+        /// <summary>
+        /// If the query already contains a clause for the given component
+        /// and engine, replace it with the specified clause. Otherwise, just
+        /// add the clause.
+        /// </summary>
+        /// <param name="component"></param>
+        /// <param name="clause"></param>
+        /// <param name="engineCode"></param>
+        /// <returns></returns>
+        public Q AddOrReplaceComponent(string component, AbstractClause clause, string engineCode = null)
+        {
+            engineCode = engineCode ?? EngineScope;
+
+            var current = GetComponents(component).SingleOrDefault(c => c.Engine == engineCode);
+            if (current != null)
+                Clauses.Remove(current);
+
+            return AddComponent(component, clause, engineCode);
+        }
+
+
 
         /// <summary>
         /// Get the list of clauses for a component.
@@ -135,13 +145,10 @@ namespace SqlKata
         /// <returns></returns>
         public C GetOneComponent<C>(string component, string engineCode = null) where C : AbstractClause
         {
-            if (engineCode == null)
-            {
-                engineCode = EngineScope;
-            }
+            engineCode = engineCode ?? EngineScope;
 
-            return GetComponents<C>(component, engineCode)
-            .FirstOrDefault();
+            var all = GetComponents<C>(component, engineCode);
+            return all.FirstOrDefault(c => c.Engine == engineCode) ?? all.FirstOrDefault(c => c.Engine == null);
         }
 
         /// <summary>
@@ -161,7 +168,7 @@ namespace SqlKata
         }
 
         /// <summary>
-        /// Return wether the query has clauses for a component.
+        /// Return whether the query has clauses for a component.
         /// </summary>
         /// <param name="component"></param>
         /// <param name="engineCode"></param>
@@ -210,7 +217,7 @@ namespace SqlKata
         /// Set the next boolean operator to "or" for the "where" clause.
         /// </summary>
         /// <returns></returns>
-        protected Q Or()
+        public Q Or()
         {
             orFlag = true;
             return (Q)this;
@@ -220,7 +227,7 @@ namespace SqlKata
         /// Set the next "not" operator for the "where" clause.
         /// </summary>
         /// <returns></returns>
-        protected Q Not(bool flag)
+        public Q Not(bool flag = true)
         {
             notFlag = flag;
             return (Q)this;
@@ -230,7 +237,7 @@ namespace SqlKata
         /// Get the boolean operator and reset it to "and"
         /// </summary>
         /// <returns></returns>
-        protected bool getOr()
+        protected bool GetOr()
         {
             var ret = orFlag;
 
@@ -243,7 +250,7 @@ namespace SqlKata
         /// Get the "not" operator and clear it
         /// </summary>
         /// <returns></returns>
-        protected bool getNot()
+        protected bool GetNot()
         {
             var ret = notFlag;
 
@@ -259,14 +266,15 @@ namespace SqlKata
         /// <returns></returns>
         public Q From(string table)
         {
-            return ClearComponent("from").AddComponent("from", new FromClause
+            return AddOrReplaceComponent("from", new FromClause
             {
-                Table = table
+                Table = table,
             });
         }
 
         public Q From(Query query, string alias = null)
         {
+            query = query.Clone();
             query.SetParent((Q)this);
 
             if (alias != null)
@@ -274,18 +282,18 @@ namespace SqlKata
                 query.As(alias);
             };
 
-            return ClearComponent("from").AddComponent("from", new QueryFromClause
+            return AddOrReplaceComponent("from", new QueryFromClause
             {
                 Query = query
             });
         }
 
-        public Q FromRaw(string expression, params object[] bindings)
+        public Q FromRaw(string sql, params object[] bindings)
         {
-            return ClearComponent("from").AddComponent("from", new RawFromClause
+            return AddOrReplaceComponent("from", new RawFromClause
             {
-                Expression = expression,
-                Bindings = Helper.Flatten(bindings).ToArray()
+                Expression = sql,
+                Bindings = bindings,
             });
         }
 
@@ -296,16 +304,6 @@ namespace SqlKata
             query.SetParent((Q)this);
 
             return From(callback.Invoke(query), alias);
-        }
-
-        protected static object BackupNullValues(object x)
-        {
-            return x ?? new NullValue();
-        }
-
-        protected static object RestoreNullValues(object x)
-        {
-            return x is NullValue ? null : x;
         }
 
     }

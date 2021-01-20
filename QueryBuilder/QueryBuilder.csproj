@@ -1,20 +1,17 @@
 ﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <Project Sdk="Microsoft.NET.Sdk">
-  <Import Condition="'$(OS)' != 'Windows_NT'" Project="..\Directory.build.props" />
   <PropertyGroup>
     <PackageId>SqlKata</PackageId>
     <PackageTags>sql;query-builder;dynamic-query</PackageTags>
     <Title>SqlKata The C# Sql Query Builder</Title>
-    <Description>A powerful Dynamic Sql Query Builder supporting Sql Server, MySql and PostgreSql</Description>
+    <Description>A powerful Dynamic Sql Query Builder supporting Sql Server, MySql, PostgreSql, Oracle and Firebird</Description>
     <Authors>Ahmad Moussawi</Authors>
     <Copyright>Copyright (c) 2017 Ahmad Moussawi</Copyright>
-    <TargetFrameworks>netstandard1.3;net451</TargetFrameworks>
+    <TargetFrameworks>net45;netstandard1.1</TargetFrameworks>
+    <RootNamespace>SqlKata</RootNamespace>
+    <AssemblyName>SqlKata</AssemblyName>
   </PropertyGroup>
-  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard1.3' ">
-    <PackageReference Include="System.Reflection.TypeExtensions" Version="4.4.0" />
-  </ItemGroup>
   <ItemGroup>
-    <PackageReference Update="NuGet.Build.Tasks.Pack" Version="4.6.2" />
-    <PackageReference Update="SourceLink.Create.CommandLine" Version="2.8.1" />
+    <PackageReference Include="System.Collections.Concurrent" Version="4.3.0" />
   </ItemGroup>
 </Project>

@@ -1,19 +1,165 @@
-# SqlKata Query Builder
+<p align="center">
+    <strong>SqlKata Query Builder</strong>
+</p>
 
-[![Build status](https://ci.appveyor.com/api/projects/status/bh022c0ol5u6s41p?svg=true)](https://ci.appveyor.com/project/ahmad-moussawi/querybuilder)
+<p align="center">
+    <a href="https://ci.appveyor.com/project/ahmad-moussawi/querybuilder"><img src="https://ci.appveyor.com/api/projects/status/bh022c0ol5u6s41p?svg=true"></a>
+    <a href="https://www.nuget.org/packages/SqlKata"><img src="https://img.shields.io/nuget/vpre/SqlKata.svg"></a>
+    <a href="https://www.myget.org/feed/sqlkata/package/nuget/SqlKata"><img src="https://img.shields.io/myget/sqlkata/v/SqlKata.svg?label=myget"></a>
+    <a href="https://github.com/sqlkata/querybuilder/network/members"><img src="https://img.shields.io/github/forks/sqlkata/querybuilder"></a>
+    <a href="https://github.com/sqlkata/querybuilder/stargazers"><img src="https://img.shields.io/github/stars/sqlkata/querybuilder"></a>
+    <a href="https://twitter.com/intent/tweet?text=Wow:&url=https%3A%2F%2Fgithub.com%2Fsqlkata%2Fquerybuilder"><img alt="Twitter" src="https://img.shields.io/twitter/url?label=Tweet%20about%20SqlKata&style=social&url=https%3A%2F%2Fgithub.com%2Fsqlkata%2Fquerybuilder"></a>
+</p>
 
-[![SqlKata on Nuget](https://img.shields.io/nuget/vpre/SqlKata.svg)](https://www.nuget.org/packages/SqlKata)
+
+
+> **WE ARE NOT ACCEPTING NEW COMPILERS, if you want to add your own compiler, we recommend to create a separate repo like SqlKata-Oracle** 
+
+Follow <a href="https://twitter.com/intent/tweet?text=Wow:&url=https%3A%2F%2Fgithub.com%2Fsqlkata%2Fquerybuilder"><img alt="Twitter" src="https://img.shields.io/twitter/url?label=%40ahmadmuzavi&style=social&url=https%3A%2F%2Ftwitter.com%2Fahmadmuzavi"></a> for the latest updates about SqlKata.
+
+
+![Quick Demo](https://i.imgur.com/jOWD4vk.gif)
+
+
 
 SqlKata Query Builder is a powerful Sql Query Builder written in C#.
 
-it's secure and framework agnostic. Inspired by the top Query Builders available, like Laravel Query Builder, and Knex.
+It's secure and framework agnostic. Inspired by the top Query Builders available, like Laravel Query Builder, and Knex.
 
 SqlKata has an expressive API. it follows a clean naming convention, which is very similar to the SQL syntax.
 
-It make writing SQL queries easy and funny, with no need to read long pages of documentations.
+By providing a level of abstraction over the supported database engines, that allows you to work with multiple databases with the same unified API.
 
-It provides a level of abstraction over the supported database engines, that allows you to work with multiple databases with the same unified API.
+SqlKata supports complex queries, such as nested conditions, selection from SubQuery, filtering over SubQueries, Conditional Statements and others. Currently it has built-in compilers for SqlServer, MySql, PostgreSql and Firebird.
 
-SqlKata supports complex queries, such as nested conditions, selection from SubQuery, filtering over SubQueries, Conditional Statements and others. Currently it has built-in compilers for SqlServer, MySql and PostgreSql.
+The SqlKata.Execution package provides the ability to submit the queries to the database, using [Dapper](https://github.com/StackExchange/Dapper) under the covers.
 
-Checkout the full documentation on [http://sqlkata.com](http://sqlkata.com)
+Checkout the full documentation on [https://sqlkata.com](https://sqlkata.com)
+
+## Installation
+
+using dotnet cli
+```sh
+$ dotnet add package SqlKata
+```
+
+using Nuget Package Manager
+```sh
+PM> Install-Package SqlKata
+```
+
+
+## Quick Examples
+
+### Setup Connection
+
+```cs
+var connection = new SqlConnection("...");
+var compiler = new SqlCompiler();
+
+var db = new QueryFactory(connection, compiler)
+```
+
+> `QueryFactory` is provided by the SqlKata.Execution package.
+
+### Retrieve all records
+```cs
+var books = db.Query("Books").Get();
+```
+
+### Retrieve published books only
+```cs
+var books = db.Query("Books").WhereTrue("IsPublished").Get();
+```
+
+### Retrieve one book
+```cs
+var introToSql = db.Query("Books").Where("Id", 145).Where("Lang", "en").First();
+```
+
+### Retrieve recent books: last 10
+```cs
+var recent = db.Query("Books").OrderByDesc("PublishedAt").Limit(10).Get();
+```
+
+### Include Author information
+```cs
+var books = db.Query("Books")
+    .Include(db.Query("Authors")) // Assumes that the Books table have a `AuthorId` column
+    .Get();
+```
+
+This will include the property "Author" on each "Book"
+```json
+[{
+    "Id": 1,
+    "PublishedAt": "2019-01-01",
+    "AuthorId": 2
+    "Author": { // <-- included property
+        "Id": 2,
+        "...": ""
+    }
+}]
+```
+
+### Join with authors table
+
+```cs
+var books = db.Query("Books")
+    .Join("Authors", "Authors.Id", "Books.AuthorId")
+    .Select("Books.*", "Authors.Name as AuthorName")
+    .Get();
+
+foreach(var book in books)
+{
+    Console.WriteLine($"{book.Title}: {book.AuthorName}");
+}
+```
+
+### Conditional queries
+```cs
+var isFriday = DateTime.Today.DayOfWeek == DayOfWeek.Friday;
+
+var books = db.Query("Books")
+    .When(isFriday, q => q.WhereIn("Category", new [] {"OpenSource", "MachineLearning"}))
+    .Get();
+```
+
+### Pagination
+
+```cs
+var page1 = db.Query("Books").Paginate(10);
+
+foreach(var book in page1.List)
+{
+    Console.WriteLine(book.Name);
+}
+
+...
+
+var page2 = page1.Next();
+```
+
+### Insert
+
+```cs
+int affected = db.Query("Users").Insert(new {
+    Name = "Jane",
+    CountryId = 1
+});
+```
+
+### Update
+
+```cs
+int affected = db.Query("Users").Where("Id", 1).Update(new {
+    Name = "Jane",
+    CountryId = 1
+});
+```
+
+### Delete
+
+```cs
+int affected = db.Query("Users").Where("Id", 1).Delete();
+```

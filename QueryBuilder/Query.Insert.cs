@@ -1,24 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace SqlKata
 {
     public partial class Query
     {
+        public Query AsInsert(object data, bool returnId = false)
+        {
+            var propertiesKeyValues = BuildKeyValuePairsFromObject(data);
+
+            return AsInsert(propertiesKeyValues, returnId);
+        }
+
         public Query AsInsert(IEnumerable<string> columns, IEnumerable<object> values)
         {
             var columnsList = columns?.ToList();
-            var valuesList = values?.Select(BackupNullValues).ToList();
+            var valuesList = values?.ToList();
 
             if ((columnsList?.Count ?? 0) == 0 || (valuesList?.Count ?? 0) == 0)
             {
-                throw new InvalidOperationException("Columns and Values cannot be null or empty");
+                throw new InvalidOperationException($"{nameof(columns)} and {nameof(values)} cannot be null or empty");
             }
 
             if (columnsList.Count != valuesList.Count)
             {
-                throw new InvalidOperationException("Columns count should be equal to Values count");
+                throw new InvalidOperationException($"{nameof(columns)} and {nameof(values)} cannot be null or empty");
             }
 
             Method = "insert";
@@ -32,19 +40,20 @@ namespace SqlKata
             return this;
         }
 
-        public Query AsInsert(IReadOnlyDictionary<string, object> data)
+        public Query AsInsert(IEnumerable<KeyValuePair<string, object>> values, bool returnId = false)
         {
-            if (data == null || data.Count == 0)
+            if (values == null || values.Any() == false)
             {
-                throw new InvalidOperationException("Values dictionary cannot be null or empty");
+                throw new InvalidOperationException($"{values} argument cannot be null or empty");
             }
 
             Method = "insert";
 
             ClearComponent("insert").AddComponent("insert", new InsertClause
             {
-                Columns = data.Keys.ToList(),
-                Values = data.Values.Select(BackupNullValues).ToList()
+                Columns = values.Select(x=>x.Key).ToList(),
+                Values = values.Select(x => x.Value).ToList(),
+                ReturnId = returnId,
             });
 
             return this;
@@ -54,16 +63,16 @@ namespace SqlKata
         /// Produces insert multi records
         /// </summary>
         /// <param name="columns"></param>
-        /// <param name="valuesCollection"></param>
+        /// <param name="rowsValues"></param>
         /// <returns></returns>
-        public Query AsInsert(IEnumerable<string> columns, IEnumerable<IEnumerable<object>> valuesCollection)
+        public Query AsInsert(IEnumerable<string> columns, IEnumerable<IEnumerable<object>> rowsValues)
         {
             var columnsList = columns?.ToList();
-            var valuesCollectionList = valuesCollection?.ToList();
+            var valuesCollectionList = rowsValues?.ToList();
 
             if ((columnsList?.Count ?? 0) == 0 || (valuesCollectionList?.Count ?? 0) == 0)
             {
-                throw new InvalidOperationException("Columns and valuesCollection cannot be null or empty");
+                throw new InvalidOperationException($"{nameof(columns)} and {nameof(rowsValues)} cannot be null or empty");
             }
 
             Method = "insert";
@@ -72,10 +81,10 @@ namespace SqlKata
 
             foreach (var values in valuesCollectionList)
             {
-                var valuesList = values.Select(BackupNullValues).ToList();
+                var valuesList = values.ToList();
                 if (columnsList.Count != valuesList.Count)
                 {
-                    throw new InvalidOperationException("Columns count should be equal to each Values count");
+                    throw new InvalidOperationException($"{nameof(columns)} count should be equal to each {nameof(rowsValues)} entry count");
                 }
 
                 AddComponent("insert", new InsertClause
@@ -101,11 +110,10 @@ namespace SqlKata
             ClearComponent("insert").AddComponent("insert", new InsertQueryClause
             {
                 Columns = columns.ToList(),
-                Query = query
+                Query = query.Clone(),
             });
 
             return this;
         }
-
     }
 }

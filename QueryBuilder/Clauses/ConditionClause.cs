@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace SqlKata
@@ -11,16 +12,16 @@ namespace SqlKata
     /// <summary>
     /// Represents a comparison between a column and a value.
     /// </summary>
-    public class BasicCondition<T> : AbstractCondition
+    public class BasicCondition : AbstractCondition
     {
         public string Column { get; set; }
         public string Operator { get; set; }
-        public virtual T Value { get; set; }
+        public virtual object Value { get; set; }
 
         /// <inheritdoc />
         public override AbstractClause Clone()
         {
-            return new BasicCondition<T>
+            return new BasicCondition
             {
                 Engine = Engine,
                 Column = Column,
@@ -33,10 +34,24 @@ namespace SqlKata
         }
     }
 
-    public class BasicStringCondition : BasicCondition<string>
+    public class BasicStringCondition : BasicCondition
     {
+
         public bool CaseSensitive { get; set; } = false;
 
+        private string escapeCharacter = null;
+        public string EscapeCharacter
+        {
+            get => escapeCharacter;
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    value = null;
+                else if (value.Length > 1)
+                    throw new ArgumentOutOfRangeException($"The {nameof(EscapeCharacter)} can only contain a single character!");
+                escapeCharacter = value;
+            }
+        }
         /// <inheritdoc />
         public override AbstractClause Clone()
         {
@@ -49,12 +64,13 @@ namespace SqlKata
                 IsOr = IsOr,
                 IsNot = IsNot,
                 CaseSensitive = CaseSensitive,
+                EscapeCharacter = EscapeCharacter,
                 Component = Component,
             };
         }
     }
 
-    public class BasicDateCondition : BasicCondition<object>
+    public class BasicDateCondition : BasicCondition
     {
         public string Part { get; set; }
 
@@ -116,6 +132,31 @@ namespace SqlKata
             {
                 Engine = Engine,
                 Column = Column,
+                Operator = Operator,
+                Query = Query.Clone(),
+                IsOr = IsOr,
+                IsNot = IsNot,
+                Component = Component,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Represents a comparison between a full "subquery" and a value.
+    /// </summary>
+    public class SubQueryCondition<T> : AbstractCondition where T : BaseQuery<T>
+    {
+        public object Value { get; set; }
+        public string Operator { get; set; }
+        public Query Query { get; set; }
+
+        /// <inheritdoc />
+        public override AbstractClause Clone()
+        {
+            return new SubQueryCondition<T>
+            {
+                Engine = Engine,
+                Value = Value,
                 Operator = Operator,
                 Query = Query.Clone(),
                 IsOr = IsOr,
@@ -213,6 +254,29 @@ namespace SqlKata
     }
 
     /// <summary>
+    /// Represents a boolean (true/false) condition.
+    /// </summary>
+    public class BooleanCondition : AbstractCondition
+    {
+        public string Column { get; set; }
+        public bool Value { get; set; }
+
+        /// <inheritdoc />
+        public override AbstractClause Clone()
+        {
+            return new BooleanCondition
+            {
+                Engine = Engine,
+                Column = Column,
+                IsOr = IsOr,
+                IsNot = IsNot,
+                Component = Component,
+                Value = Value,
+            };
+        }
+    }
+
+    /// <summary>
     /// Represents a "nested" clause condition.
     /// i.e OR (myColumn = "A")
     /// </summary>
@@ -235,14 +299,14 @@ namespace SqlKata
     /// <summary>
     /// Represents an "exists sub query" clause condition.
     /// </summary>
-    public class ExistsCondition<T> : AbstractCondition where T : BaseQuery<T>
+    public class ExistsCondition : AbstractCondition
     {
-        public T Query { get; set; }
+        public Query Query { get; set; }
 
         /// <inheritdoc />
         public override AbstractClause Clone()
         {
-            return new ExistsCondition<T>
+            return new ExistsCondition
             {
                 Engine = Engine,
                 Query = Query.Clone(),
@@ -253,7 +317,7 @@ namespace SqlKata
         }
     }
 
-    public class RawCondition : AbstractCondition, IRaw
+    public class RawCondition : AbstractCondition
     {
         public string Expression { get; set; }
         public object[] Bindings { set; get; }

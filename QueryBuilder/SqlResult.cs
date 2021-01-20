@@ -1,80 +1,87 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace SqlKata
 {
     public class SqlResult
     {
-        public string RawSql { get; set; }
-        public List<object> RawBindings { get; set; }
+        public Query Query { get; set; }
+        public string RawSql { get; set; } = "";
+        public List<object> Bindings { get; set; } = new List<object>();
+        public string Sql { get; set; } = "";
+        public Dictionary<string, object> NamedBindings = new Dictionary<string, object>();
 
-        public SqlResult(string sql, List<object> bindings)
+        private static readonly Type[] NumberTypes =
         {
-            RawSql = sql;
-            RawBindings = bindings;
-        }
-
-        public string Sql
-        {
-            get
-            {
-                return Helper.ReplaceAll(RawSql, "?", x => "@p" + x);
-            }
-        }
-
-        public Dictionary<string, object> Bindings
-        {
-            get
-            {
-                var namedParams = new Dictionary<string, object>();
-
-                for (var i = 0; i < RawBindings.Count; i++)
-                {
-                    namedParams["p" + i] = RawBindings[i];
-                }
-
-                return namedParams;
-            }
-        }
+            typeof(int),
+            typeof(long),
+            typeof(decimal),
+            typeof(double),
+            typeof(float),
+            typeof(short),
+            typeof(ushort),
+            typeof(ulong),
+        };
 
         public override string ToString()
         {
+            var deepParameters = Helper.Flatten(Bindings).ToList();
+
             return Helper.ReplaceAll(RawSql, "?", i =>
             {
-                var value = RawBindings[i];
-
-                if (value == null)
+                if (i >= deepParameters.Count)
                 {
-                    return "NULL";
+                    throw new Exception(
+                        $"Failed to retrieve a binding at index {i}, the total bindings count is {Bindings.Count}");
                 }
 
-                var textValue = value.ToString();
-
-                if (IsNumber(textValue))
-                {
-                    return textValue;
-                }
-
-                return "'" + textValue + "'";
-
+                var value = deepParameters[i];
+                return ChangeToSqlValue(value);
             });
         }
 
-        private static bool IsNumber(string val)
+        private string ChangeToSqlValue(object value)
         {
-            return !string.IsNullOrEmpty(val) && val.All(char.IsDigit);
+            if (value == null)
+            {
+                return "NULL";
+            }
+
+            if (Helper.IsArray(value))
+            {
+                return Helper.JoinArray(",", value as IEnumerable);
+            }
+
+            if (NumberTypes.Contains(value.GetType()))
+            {
+                return Convert.ToString(value, CultureInfo.InvariantCulture);
+            }
+
+            if (value is DateTime date)
+            {
+                if (date.Date == date)
+                {
+                    return "'" + date.ToString("yyyy-MM-dd") + "'";
+                }
+
+                return "'" + date.ToString("yyyy-MM-dd HH:mm:ss") + "'";
+            }
+
+            if (value is bool vBool)
+            {
+                return vBool ? "true" : "false";
+            }
+
+            if (value is Enum vEnum)
+            {
+                return Convert.ToInt32(vEnum) + $" /* {vEnum} */";
+            }
+
+            // fallback to string
+            return "'" + value.ToString() + "'";
         }
-
-        public static SqlResult operator +(SqlResult a, SqlResult b)
-        {
-            var sql = a.RawSql + ";" + b.RawSql;
-
-            var bindings = a.RawBindings.Concat(b.RawBindings).ToList();
-
-            var result = new SqlResult(sql, bindings);
-
-            return result;
-        }
-
     }
 }

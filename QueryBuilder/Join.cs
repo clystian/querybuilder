@@ -4,18 +4,7 @@ namespace SqlKata
 {
     public class Join : BaseQuery<Join>
     {
-        protected string _type = "INNER";
-
-        protected override string[] bindingOrder
-        {
-            get
-            {
-                return new[] {
-                    "from",
-                    "where",
-                };
-            }
-        }
+        protected string _type = "inner join";
 
         public string Type
         {
@@ -25,7 +14,7 @@ namespace SqlKata
             }
             set
             {
-                _type = value.ToUpper();
+                _type = value.ToUpperInvariant();
             }
         }
 
@@ -56,11 +45,11 @@ namespace SqlKata
         public Join JoinWith(Query query) => From(query);
         public Join JoinWith(Func<Query, Query> callback) => From(callback);
 
-        public Join AsInner() => AsType("inner");
-        public Join AsOuter() => AsType("outer");
-        public Join AsLeft() => AsType("left");
-        public Join AsRight() => AsType("right");
-        public Join AsCross() => AsType("cross");
+        public Join AsInner() => AsType("inner join");
+        public Join AsOuter() => AsType("outer join");
+        public Join AsLeft() => AsType("left join");
+        public Join AsRight() => AsType("right join");
+        public Join AsCross() => AsType("cross join");
 
         public Join On(string first, string second, string op = "=")
         {
@@ -69,8 +58,8 @@ namespace SqlKata
                 First = first,
                 Second = second,
                 Operator = op,
-                IsOr = getOr(),
-                IsNot = getNot()
+                IsOr = GetOr(),
+                IsNot = GetNot()
             });
 
         }
@@ -82,7 +71,7 @@ namespace SqlKata
 
         public override Join NewQuery()
         {
-            return new Join().SetEngineScope(EngineScope);
+            return new Join();
         }
     }
 }

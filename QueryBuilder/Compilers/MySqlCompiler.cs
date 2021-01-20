@@ -1,43 +1,49 @@
-using System;
-
 namespace SqlKata.Compilers
 {
     public class MySqlCompiler : Compiler
     {
-        public MySqlCompiler() : base()
+        public MySqlCompiler()
         {
-            EngineCode = "mysql";
             OpeningIdentifier = ClosingIdentifier = "`";
+            LastId = "SELECT last_insert_id() as Id";
         }
 
-        public override string CompileOffset(Query query)
-        {
-            var limitOffset = query.GetOneComponent("limit", EngineCode) as LimitOffset;
+        public override string EngineCode { get; } = EngineCodes.MySql;
 
-            if (limitOffset == null || !limitOffset.HasOffset())
+        public override string CompileLimit(SqlResult ctx)
+        {
+            var limit = ctx.Query.GetLimit(EngineCode);
+            var offset = ctx.Query.GetOffset(EngineCode);
+
+
+            if (offset == 0 && limit == 0)
             {
-                return "";
+                return null;
             }
 
-            bindings.Add(limitOffset.Offset);
-
-            // MySql will not accept offset without limit
-            // So we will put a large number to avoid this error
-            if (!limitOffset.HasLimit())
+            if (offset == 0)
             {
+                ctx.Bindings.Add(limit);
+                return "LIMIT ?";
+            }
+
+            if (limit == 0)
+            {
+
+                // MySql will not accept offset without limit, so we will put a large number
+                // to avoid this error.
+
+                ctx.Bindings.Add(offset);
                 return "LIMIT 18446744073709551615 OFFSET ?";
             }
 
-            return "OFFSET ?";
-        }
-    }
+            // We have both values
 
-    public static class MySqlCompilerExtensions
-    {
-        public static string ENGINE_CODE = "mysql";
-        public static Query ForMySql(this Query src, Func<Query, Query> fn)
-        {
-            return src.For(MySqlCompilerExtensions.ENGINE_CODE, fn);
+            ctx.Bindings.Add(limit);
+            ctx.Bindings.Add(offset);
+
+            return "LIMIT ? OFFSET ?";
+
         }
     }
 }

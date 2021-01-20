@@ -40,6 +40,7 @@ namespace SqlKata
         {
             return new FromClause
             {
+                Engine = Engine,
                 Alias = Alias,
                 Table = Table,
                 Component = Component,
@@ -75,7 +76,7 @@ namespace SqlKata
         }
     }
 
-    public class RawFromClause : AbstractFrom, IRaw
+    public class RawFromClause : AbstractFrom
     {
         public string Expression { get; set; }
         public object[] Bindings { set; get; }

@@ -1,105 +1,91 @@
-using System;
-
 namespace SqlKata.Compilers
 {
     public class SqlServerCompiler : Compiler
     {
         public SqlServerCompiler()
         {
-            EngineCode = "sqlsrv";
             OpeningIdentifier = "[";
             ClosingIdentifier = "]";
+            LastId = "SELECT scope_identity() as Id";
         }
 
-        protected override Query OnBeforeSelect(Query query)
+        public override string EngineCode { get; } = EngineCodes.SqlServer;
+        public bool UseLegacyPagination { get; set; } = true;
+
+        protected override SqlResult CompileSelectQuery(Query query)
         {
-            var limitOffset = query.GetOneComponent<LimitOffset>("limit", EngineCode);
-
-            if (limitOffset == null || !limitOffset.HasOffset())
+            if (!UseLegacyPagination || !query.HasOffset(EngineCode))
             {
-                return query;
+                return base.CompileSelectQuery(query);
             }
 
+            query = query.Clone();
 
-            // Surround the original query with a parent query, then restrict the result to the offset provided, see more at https://docs.microsoft.com/en-us/sql/t-sql/functions/row-number-transact-sql
+            var ctx = new SqlResult
+            {
+                Query = query,
+            };
+
+            var limit = query.GetLimit(EngineCode);
+            var offset = query.GetOffset(EngineCode);
 
 
-            var rowNumberColName = "row_num";
+            if (!query.HasComponent("select"))
+            {
+                query.Select("*");
+            }
 
-            var orderStatement = CompileOrders(query) ?? "ORDER BY (SELECT 0)";
+            var order = CompileOrders(ctx) ?? "ORDER BY (SELECT 0)";
 
-            var orderClause = query.GetComponents("order", EngineCode);
+            query.SelectRaw($"ROW_NUMBER() OVER ({order}) AS [row_num]", ctx.Bindings.ToArray());
 
-
-            // get a clone without the limit and order
             query.ClearComponent("order");
-            query.ClearComponent("limit");
-            var subquery = query.Clone();
 
-            subquery.ClearComponent("cte");
 
-            // Now clear other stuff
-            query.ClearComponent("select");
-            query.ClearComponent("from");
-            query.ClearComponent("join");
-            query.ClearComponent("where");
-            query.ClearComponent("group");
-            query.ClearComponent("having");
-            query.ClearComponent("union");
+            var result = base.CompileSelectQuery(query);
 
-            // Transform the query to make it a parent query
-            query.Select("*");
-
-            if (!subquery.HasComponent("select", EngineCode))
+            if (limit == 0)
             {
-                subquery.SelectRaw("*");
-            }
-
-            //Add an alias name to the subquery
-            subquery.As("subquery");
-
-            // Add the row_number select, and put back the bindings here if any
-            subquery.SelectRaw(
-                    $"ROW_NUMBER() OVER ({orderStatement}) AS {WrapValue(rowNumberColName)}",
-                    new object[] { }
-            );
-
-            query.From(subquery);
-
-            if (limitOffset.HasLimit())
-            {
-                query.WhereBetween(
-                    rowNumberColName,
-                    limitOffset.Offset + 1,
-                    limitOffset.Limit + limitOffset.Offset
-                );
+                result.RawSql = $"SELECT * FROM ({result.RawSql}) AS [results_wrapper] WHERE [row_num] >= ?";
+                result.Bindings.Add(offset + 1);
             }
             else
             {
-                query.Where(rowNumberColName, ">=", limitOffset.Offset + 1);
+                result.RawSql = $"SELECT * FROM ({result.RawSql}) AS [results_wrapper] WHERE [row_num] BETWEEN ? AND ?";
+                result.Bindings.Add(offset + 1);
+                result.Bindings.Add(limit + offset);
             }
 
-            limitOffset.Clear();
-
-            return query;
-
+            return result;
         }
 
-        protected override string CompileColumns(Query query)
+        protected override string CompileColumns(SqlResult ctx)
         {
-            var compiled = base.CompileColumns(query);
+            var compiled = base.CompileColumns(ctx);
+
+            if (!UseLegacyPagination)
+            {
+                return compiled;
+            }
 
             // If there is a limit on the query, but not an offset, we will add the top
             // clause to the query, which serves as a "limit" type clause within the
             // SQL Server system similar to the limit keywords available in MySQL.
-            var limitOffset = query.GetOneComponent("limit", EngineCode) as LimitOffset;
+            var limit = ctx.Query.GetLimit(EngineCode);
+            var offset = ctx.Query.GetOffset(EngineCode);
 
-            if (limitOffset != null && limitOffset.HasLimit() && !limitOffset.HasOffset())
+            if (limit > 0 && offset == 0)
             {
                 // top bindings should be inserted first
-                bindings.Insert(0, limitOffset.Limit);
+                ctx.Bindings.Insert(0, limit);
 
-                query.ClearComponent("limit");
+                ctx.Query.ClearComponent("limit");
+
+                // handle distinct
+                if (compiled.IndexOf("SELECT DISTINCT") == 0)
+                {
+                    return "SELECT DISTINCT TOP (?)" + compiled.Substring(15);
+                }
 
                 return "SELECT TOP (?)" + compiled.Substring(6);
             }
@@ -107,15 +93,39 @@ namespace SqlKata.Compilers
             return compiled;
         }
 
-        public override string CompileLimit(Query query)
+        public override string CompileLimit(SqlResult ctx)
         {
-            return "";
-        }
+            if (UseLegacyPagination)
+            {
+                // in legacy versions of Sql Server, limit is handled by TOP
+                // and ROW_NUMBER techniques
+                return null;
+            }
 
-        public override string CompileOffset(Query query)
-        {
+            var limit = ctx.Query.GetLimit(EngineCode);
+            var offset = ctx.Query.GetOffset(EngineCode);
 
-            return "";
+            if (limit == 0 && offset == 0)
+            {
+                return null;
+            }
+
+            var safeOrder = "";
+            if (!ctx.Query.HasComponent("order"))
+            {
+                safeOrder = "ORDER BY (SELECT 0) ";
+            }
+
+            if (limit == 0)
+            {
+                ctx.Bindings.Add(offset);
+                return $"{safeOrder}OFFSET ? ROWS";
+            }
+
+            ctx.Bindings.Add(offset);
+            ctx.Bindings.Add(limit);
+
+            return $"{safeOrder}OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
         }
 
         public override string CompileRandom(string seed)
@@ -123,26 +133,33 @@ namespace SqlKata.Compilers
             return "NEWID()";
         }
 
-        protected override string CompileBasicDateCondition(BasicDateCondition condition)
+        public override string CompileTrue()
+        {
+            return "cast(1 as bit)";
+        }
+
+        public override string CompileFalse()
+        {
+            return "cast(0 as bit)";
+        }
+
+        protected override string CompileBasicDateCondition(SqlResult ctx, BasicDateCondition condition)
         {
             var column = Wrap(condition.Column);
+            var part = condition.Part.ToUpperInvariant();
 
             string left;
 
-            if (condition.Part == "time")
+            if (part == "TIME" || part == "DATE")
             {
-                left = $"CAST({column} as time)";
-            }
-            else if (condition.Part == "date")
-            {
-                left = $"CAST({column} as date)";
+                left = $"CAST({column} AS {part.ToUpperInvariant()})";
             }
             else
             {
-                left = $"DATEPART({condition.Part.ToUpper()}, {column})";
+                left = $"DATEPART({part.ToUpperInvariant()}, {column})";
             }
 
-            var sql = $"{left} {condition.Operator} {Parameter(condition.Value)}";
+            var sql = $"{left} {condition.Operator} {Parameter(ctx, condition.Value)}";
 
             if (condition.IsNot)
             {
@@ -150,15 +167,6 @@ namespace SqlKata.Compilers
             }
 
             return sql;
-        }
-    }
-
-    public static class SqlServerCompilerExtensions
-    {
-        public static string ENGINE_CODE = "sqlsrv";
-        public static Query ForSqlServer(this Query src, Func<Query, Query> fn)
-        {
-            return src.For(SqlServerCompilerExtensions.ENGINE_CODE, fn);
         }
     }
 }
